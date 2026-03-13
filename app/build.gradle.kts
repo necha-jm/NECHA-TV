@@ -44,4 +44,5 @@ dependencies {
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("com.google.android.exoplayer:exoplayer:2.19.1")
     implementation("com.google.android.material:material:1.9.0")
+    implementation("com.airbnb.android:lottie:6.1.0")
 }

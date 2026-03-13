@@ -1,5 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="hint_gray">#B0BEC5</color>
+    <color name="text_primary">#263238</color>
+    <color name="text_secondary">#546E7A</color>
+    <color name="avatar_bg">#E1F5FE</color>
+    <color name="card_bg">#FFFFFF</color>
+    <color name="card_stroke">#E0E0E0</color>
+
+    <!-- Chip colors -->
+    <color name="chip_selected">#FF6B6B</color>
+    <color name="chip_unselected">#4A5568</color>
+
+    <!-- Favorite colors -->
+    <color name="favorite_selected">#FFC107</color>
+    <color name="favorite_unselected">#B0BEC5</color>
 </resources>
