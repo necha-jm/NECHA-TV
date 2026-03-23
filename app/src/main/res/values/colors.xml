@@ -14,7 +14,9 @@
     <color name="card_bg">#FFFFFF</color>
     <color name="card_stroke">#E0E0E0</color>
     <color name="play_button">#4CAF50</color>
-
+    <color name="aspect_ratio_fit">#4CAF50</color>    <!-- Green for Fit mode -->
+    <color name="aspect_ratio_fill">#FF9800</color>   <!-- Orange for Fill mode -->
+    <color name="aspect_ratio_zoom">#2196F3</color>
     <!-- Chip colors -->
     <color name="chip_selected">#FF6B6B</color>
     <color name="chip_unselected">#4A5568</color>

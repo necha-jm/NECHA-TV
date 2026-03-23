@@ -3,20 +3,51 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:id="@+id/activity_player"
     android:layout_height="match_parent"
-    android:background="@android:color/black">
+    android:background="@android:color/black"
+    android:id="@+id/activity_player">
 
-    <!-- ExoPlayer View - Full Screen with Multiple Resize Options -->
+    <!-- ExoPlayer View -->
     <com.google.android.exoplayer2.ui.PlayerView
         android:id="@+id/playerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:use_controller="true"
-        app:resize_mode="zoom" />  <!-- ← CHANGE THIS VALUE for different effects -->
+        app:resize_mode="fit" />
+
+    <!-- Top Bar with Aspect Ratio Button -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:orientation="horizontal"
+        android:gravity="end"
+        android:padding="16dp"
+        android:background="#33000000">
+
+        <!-- Attractive Aspect Ratio Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_aspect_ratio"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:text="Fit"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/white"
+            android:backgroundTint="#4CAF50"
+            app:cornerRadius="24dp"
+            app:icon="@drawable/ic_aspect_ratio"
+            app:iconGravity="textStart"
+            app:iconTint="@android:color/white"
+            app:iconSize="18dp"
+            android:elevation="4dp"
+            android:tooltipText="Change video display mode" />
+
+    </LinearLayout>
 
     <!-- Control Buttons Container -->
     <LinearLayout
+        android:id="@+id/controlButtonsContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
@@ -24,8 +55,7 @@
         android:gravity="center"
         android:padding="16dp"
         android:background="#80000000"
-        android:visibility="gone"
-        android:id="@+id/controlButtonsContainer">
+        android:visibility="gone">
 
         <Button
             android:id="@+id/btn_play_pause"
@@ -59,6 +89,7 @@
         android:layout_margin="16dp"
         android:layout_gravity="bottom|end"
         android:contentDescription="Open Channels"
+        android:src="@drawable/add"
         app:backgroundTint="@color/teal_700"
         app:tint="@android:color/white"
         app:rippleColor="@color/teal_200"

@@ -21,10 +21,16 @@ import com.google.android.exoplayer2.source.hls.HlsMediaSource;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource;
 import com.google.android.exoplayer2.util.Util;
 
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 public class StreamingService extends Service implements Player.Listener {
 
     private static final String CHANNEL_ID = "streaming_channel";
     private static final int NOTIFICATION_ID = 1001;
+
+    private int retryCount = 0;
+    private static final int MAX_RETRIES = 2;
 
     private ExoPlayer player;
     private String currentUrl;
@@ -216,14 +222,80 @@ public class StreamingService extends Service implements Player.Listener {
         return builder.build();
     }
 
+// Add these imports at the top
+
+
+    // Replace the onPlayerError method with this:
     @Override
     public void onPlayerError(PlaybackException error) {
         error.printStackTrace();
-        updateNotification("Error: Connection failed");
 
+        String errorMessage = "Connection failed";
+        String errorType = "UNKNOWN";
+
+        // Detect different error types
+        if (error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED) {
+            errorMessage = "Network error - Please check your internet connection";
+            errorType = "NETWORK_ERROR";
+        } else if (error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT) {
+            errorMessage = "Connection timeout - Server is slow or offline";
+            errorType = "TIMEOUT";
+        } else if (error.errorCode == PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE) {
+            errorMessage = "This channel is geo-blocked and not available in your region";
+            errorType = "GEO_BLOCKED";
+        } else if (error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
+            errorMessage = "Channel unavailable (HTTP error)";
+            errorType = "HTTP_ERROR";
+
+            // Try to detect if it's geo-blocked by checking the URL
+            if (currentUrl != null) {
+                checkIfGeoBlocked(currentUrl);
+            }
+        }
+
+        updateNotification("Error: " + errorMessage);
+
+        // Send error to activity
         Intent intent = new Intent("STREAMING_ERROR");
-        intent.putExtra("error", error.getMessage());
+        intent.putExtra("error", errorMessage);
+        intent.putExtra("errorType", errorType);
         sendBroadcast(intent);
+
+        // Auto retry for network errors only
+        if (errorType.equals("NETWORK_ERROR") && retryCount < MAX_RETRIES) {
+            retryCount++;
+            updateNotification("Retrying... (" + retryCount + "/" + MAX_RETRIES + ")");
+            new android.os.Handler().postDelayed(() -> {
+                if (player != null && currentUrl != null) {
+                    playStream(currentUrl);
+                }
+            }, 2000);
+        } else {
+            retryCount = 0;
+        }
+    }
+
+    // Add this method to check if URL is geo-blocked
+    private void checkIfGeoBlocked(String url) {
+        new Thread(() -> {
+            try {
+                HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+                connection.setRequestMethod("HEAD");
+                connection.setConnectTimeout(5000);
+                connection.setReadTimeout(5000);
+                int responseCode = connection.getResponseCode();
+                connection.disconnect();
+
+                if (responseCode == 403) {
+                    Intent intent = new Intent("STREAMING_ERROR");
+                    intent.putExtra("error", "This channel is geo-blocked");
+                    intent.putExtra("errorType", "GEO_BLOCKED");
+                    sendBroadcast(intent);
+                }
+            } catch (Exception e) {
+                // Ignore
+            }
+        }).start();
     }
 
     @Override
