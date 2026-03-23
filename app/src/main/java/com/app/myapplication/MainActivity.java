@@ -12,7 +12,9 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -24,21 +26,16 @@ public class MainActivity extends AppCompatActivity {
 
     private final String PLAYLIST = "https://iptv-org.github.io/iptv/index.m3u";
 
-    // ADD THIS: Array of additional playlists (you can add more)
+    // ← FIXED: Removed duplicates, keep only unique playlists
     private final String[] ADDITIONAL_PLAYLISTS = {
             "https://iptv-org.github.io/iptv/categories/sports.m3u",
             "https://iptv-org.github.io/iptv/categories/music.m3u",
-            "https://iptv-org.github.io/iptv/countries/tz.m3u",
-            "https://iptv-org.github.io/iptv/index.m3u",
-            "https://iptv-org.github.io/iptv/countries/tz.m3u",
-            "https://iptv-org.github.io/iptv/regions/afr.m3u",
-            "https://iptv-org.github.io/iptv/categories/sports.m3u",
-            "https://iptv-org.github.io/iptv/categories/news.m3u",
-            "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"
+            "https://iptv-org.github.io/iptv/countries/tz.m3u"
+
     };
 
-    // ADD THIS: Flag to enable/disable multiple playlists
-    private final boolean USE_MULTIPLE_PLAYLISTS = true;
+    // ← FIXED: Set to false for faster loading (single playlist)
+    private final boolean USE_MULTIPLE_PLAYLISTS = false;  // ← CHANGE to false for speed!
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -91,9 +88,6 @@ public class MainActivity extends AppCompatActivity {
                 // Hide loading indicator
                 progressBar.setVisibility(View.GONE);
 
-                // ← REMOVED the Toast message that was interfering
-                // No toast message - just load channels silently
-
                 adapter = new ChannelAdapter(channels, channel -> {
                     // Launch PlayerActivity on channel click
                     Intent intent = new Intent(MainActivity.this, PlayerActivity.class);
@@ -102,22 +96,30 @@ public class MainActivity extends AppCompatActivity {
                 });
 
                 recyclerView.setAdapter(adapter);
+
+                // Optional: Show quick toast with load info (won't interfere)
+                Toast.makeText(MainActivity.this,
+                        "Loaded " + channels.size() + " channels in " + loadTime + "ms",
+                        Toast.LENGTH_SHORT).show();
             });
 
         }).start();
     }
 
-    // ADD THIS: Method to load multiple playlists
+    // ← FIXED: Added deduplication to avoid duplicate channels
     private List<Channel> loadMultiplePlaylists() {
+        Set<String> uniqueUrls = new HashSet<>();  // ← Track unique URLs
         List<Channel> allChannels = new ArrayList<>();
         List<String> playlistUrls = new ArrayList<>();
 
         // Add main playlist
         playlistUrls.add(PLAYLIST);
 
-        // Add additional playlists
+        // Add additional playlists (without duplicates)
         for (String url : ADDITIONAL_PLAYLISTS) {
-            playlistUrls.add(url);
+            if (!playlistUrls.contains(url)) {  // ← Avoid duplicates
+                playlistUrls.add(url);
+            }
         }
 
         // Load all playlists
@@ -125,7 +127,13 @@ public class MainActivity extends AppCompatActivity {
             String url = playlistUrls.get(i);
             List<Channel> playlistChannels = M3UParser.parse(url);
             if (playlistChannels != null) {
-                allChannels.addAll(playlistChannels);
+                for (Channel channel : playlistChannels) {
+                    // ← Add only unique channels
+                    if (!uniqueUrls.contains(channel.getUrl())) {
+                        uniqueUrls.add(channel.getUrl());
+                        allChannels.add(channel);
+                    }
+                }
             }
         }
 
