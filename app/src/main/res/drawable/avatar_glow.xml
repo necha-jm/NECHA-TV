@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape>
+            <gradient
+                android:startColor="#4CAF50"
+                android:endColor="#2196F3"
+                android:angle="45"
+                android:type="linear" />
+            <corners android:radius="40dp" />
+        </shape>
+    </item>
+    <item
+        android:drawable="@drawable/ic_channel_placeholder"
+        android:left="2dp"
+        android:top="2dp"
+        android:right="2dp"
+        android:bottom="2dp" />
+</layer-list>

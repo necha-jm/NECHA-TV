@@ -13,11 +13,13 @@
     <color name="avatar_bg">#E1F5FE</color>
     <color name="card_bg">#FFFFFF</color>
     <color name="card_stroke">#E0E0E0</color>
+    <color name="play_button">#4CAF50</color>
 
     <!-- Chip colors -->
     <color name="chip_selected">#FF6B6B</color>
     <color name="chip_unselected">#4A5568</color>
-
+    <color name="category_text">#4CAF50</color>
+    <color name="icon_color">#B0B0B0</color>
     <!-- Favorite colors -->
     <color name="favorite_selected">#FFC107</color>
     <color name="favorite_unselected">#B0BEC5</color>

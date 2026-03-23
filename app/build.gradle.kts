@@ -45,4 +45,5 @@ dependencies {
     implementation("com.google.android.exoplayer:exoplayer:2.19.1")
     implementation("com.google.android.material:material:1.9.0")
     implementation("com.airbnb.android:lottie:6.1.0")
+    implementation("androidx.media:media:1.6.0")
 }

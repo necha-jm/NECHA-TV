@@ -2,6 +2,9 @@ package com.app.myapplication;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.View;
+import android.widget.ProgressBar;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SearchView;
@@ -15,6 +18,7 @@ public class MainActivity extends AppCompatActivity {
 
     private RecyclerView recyclerView;
     private SearchView searchView;
+    private ProgressBar progressBar;  // ← ADD THIS
     private List<Channel> channels = new ArrayList<>();
     private ChannelAdapter adapter;
 
@@ -27,8 +31,12 @@ public class MainActivity extends AppCompatActivity {
 
         recyclerView = findViewById(R.id.recyclerView);
         searchView = findViewById(R.id.searchView);
+        progressBar = findViewById(R.id.progressBar);  // ← ADD THIS
 
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
+
+        // ← ADD THIS: Show loading indicator
+        progressBar.setVisibility(View.VISIBLE);
 
         loadChannels();
 
@@ -50,11 +58,22 @@ public class MainActivity extends AppCompatActivity {
 
     private void loadChannels() {
         new Thread(() -> {
-            // Parse M3U playlist
+            // ← MODIFIED: Parse M3U playlist with cache support
+            long startTime = System.currentTimeMillis();  // ← ADD THIS: Measure load time
             channels = M3UParser.parse(PLAYLIST);
+            long loadTime = System.currentTimeMillis() - startTime;  // ← ADD THIS
+
             if (channels == null) channels = new ArrayList<>();
 
             runOnUiThread(() -> {
+                // ← ADD THIS: Hide loading indicator
+                progressBar.setVisibility(View.GONE);
+
+                // ← ADD THIS: Show load time (optional)
+                Toast.makeText(MainActivity.this,
+                        "Loaded " + channels.size() + " channels in " + loadTime + "ms",
+                        Toast.LENGTH_SHORT).show();
+
                 adapter = new ChannelAdapter(channels, channel -> {
                     // Launch PlayerActivity on channel click
                     Intent intent = new Intent(MainActivity.this, PlayerActivity.class);
