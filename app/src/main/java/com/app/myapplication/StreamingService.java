@@ -6,12 +6,13 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
-import android.media.AudioAttributes;
 import android.os.Binder;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 
 import androidx.core.app.NotificationCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.MediaItem;
@@ -25,17 +26,19 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class StreamingService extends Service implements Player.Listener {
-
+    public static final String ACTION_PLAY = "ACTION_PLAY";
+    public static final String ACTION_PAUSE = "ACTION_PAUSE";
+    public static final String ACTION_STOP = "ACTION_STOP";
     private static final String CHANNEL_ID = "streaming_channel";
     private static final int NOTIFICATION_ID = 1001;
-
-    private int retryCount = 0;
     private static final int MAX_RETRIES = 2;
 
     private ExoPlayer player;
     private String currentUrl;
+    private int retryCount = 0;
     private final IBinder binder = new LocalBinder();
     private NotificationManager notificationManager;
+    private Handler mainHandler = new Handler();
 
     public class LocalBinder extends Binder {
         public StreamingService getService() {
@@ -47,95 +50,89 @@ public class StreamingService extends Service implements Player.Listener {
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
-        initializePlayer();
-        startForegroundWithNotification();
+        initPlayer();
+        startForegroundWithNotification("Initializing...");
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null) {
-            String action = intent.getAction();
-            String url = intent.getStringExtra("url");
 
-            // Handle notification actions
-            if (action != null) {
-                switch (action) {
-                    case "PLAY":
-                        if (player != null && !player.isPlaying()) {
-                            player.play();
-                            updateNotification("Playing");
-                        }
-                        break;
-                    case "PAUSE":
-                        if (player != null && player.isPlaying()) {
-                            player.pause();
-                            updateNotification("Paused");
-                        }
-                        break;
-                    case "STOP":
-                        stopPlayback();
-                        break;
-                }
+        if (intent != null) {
+
+            String action = intent.getAction();
+
+            if (ACTION_PLAY.equals(action)) {
+                resumePlayback();
+                return START_STICKY;
             }
 
-            // Handle new stream URL
+            if (ACTION_PAUSE.equals(action)) {
+                pausePlayback();
+                return START_STICKY;
+            }
+
+            if (ACTION_STOP.equals(action)) {
+                stopPlayback();
+                return START_NOT_STICKY;
+            }
+
+            String url = intent.getStringExtra("url");
             if (url != null && !url.equals(currentUrl)) {
-                playStream(url);
-                updateNotification("Loading stream...");
+                playStreamAsync(url);
             }
         }
+
         return START_STICKY;
     }
 
-    private void initializePlayer() {
-        // ← MODIFIED: Reduced timeout values (10s → 3s)
-        DefaultHttpDataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
-                .setUserAgent(Util.getUserAgent(this, "MyIPTVApp"))
-                .setConnectTimeoutMs(3000)  // ← CHANGED: was 10000
-                .setReadTimeoutMs(3000);     // ← CHANGED: was 10000
-
-        // Build ExoPlayer (without custom LoadControl to avoid errors)
+    private void initPlayer() {
         player = new ExoPlayer.Builder(this)
                 .setAudioAttributes(com.google.android.exoplayer2.audio.AudioAttributes.DEFAULT, true)
                 .setHandleAudioBecomingNoisy(true)
                 .build();
-
         player.addListener(this);
     }
 
-    private void playStream(String url) {
+    private void playStreamAsync(String url) {
+        currentUrl = url;
         if (player == null) return;
 
-        currentUrl = url;
-
-        // Stop current playback
+        updateNotification("Loading stream...");
         player.stop();
 
-        // Create media item
-        MediaItem mediaItem = new MediaItem.Builder()
-                .setUri(url)
-                .build();
+        new Thread(() -> {
+            try {
+                preConnect(url); // Non-blocking network pre-check
+            } catch (Exception ignored) {}
 
-        // ← ADD THIS BLOCK: Optimized HLS loading
-        if (url.contains(".m3u8")) {
-            DefaultHttpDataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
-                    .setUserAgent(Util.getUserAgent(this, "MyIPTVApp"))
-                    .setConnectTimeoutMs(3000)
-                    .setReadTimeoutMs(3000);
+            mainHandler.post(() -> {
+                MediaItem mediaItem = MediaItem.fromUri(url);
+                if (url.endsWith(".m3u8")) {
+                    HlsMediaSource hls = new HlsMediaSource.Factory(
+                            new DefaultHttpDataSource.Factory()
+                                    .setUserAgent(Util.getUserAgent(this, "IPTVFast"))
+                                    .setConnectTimeoutMs(5000)
+                                    .setReadTimeoutMs(5000)
+                    ).createMediaSource(mediaItem);
+                    player.setMediaSource(hls);
+                } else {
+                    player.setMediaItem(mediaItem);
+                }
 
-            HlsMediaSource hlsMediaSource = new HlsMediaSource.Factory(dataSourceFactory)
-                    .setAllowChunklessPreparation(true)  // ← KEY: Faster HLS startup
-                    .createMediaSource(mediaItem);
-            player.setMediaSource(hlsMediaSource);
-        } else {
-            player.setMediaItem(mediaItem);
-        }
+                player.prepare();
+                player.play();
+                updateNotification("Streaming...");
+            });
+        }).start();
+    }
 
-        // Prepare and play
-        player.prepare();
-        player.play();
-
-        updateNotification("Streaming...");
+    private void preConnect(String url) throws Exception {
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setRequestMethod("HEAD");
+        conn.setConnectTimeout(3000);
+        conn.setReadTimeout(3000);
+        conn.connect();
+        conn.disconnect();
     }
 
     private void createNotificationChannel() {
@@ -143,230 +140,160 @@ public class StreamingService extends Service implements Player.Listener {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
                     "Streaming Service",
-                    NotificationManager.IMPORTANCE_LOW
+                    NotificationManager.IMPORTANCE_HIGH
             );
             channel.setDescription("Shows when streaming content is playing");
-            channel.setSound(null, null);
-            channel.setShowBadge(false);
-
             notificationManager = getSystemService(NotificationManager.class);
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC); // Show on lock screen
             notificationManager.createNotificationChannel(channel);
         }
     }
 
-    private void startForegroundWithNotification() {
-        Notification notification = createNotification("Initializing...");
+    private void startForegroundWithNotification(String status) {
+        Notification notification = createNotification(status);
         startForeground(NOTIFICATION_ID, notification);
     }
 
     private void updateNotification(String status) {
         Notification notification = createNotification(status);
-        if (notificationManager != null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                notificationManager.notify(NOTIFICATION_ID, notification);
-            } else {
-                // For older versions, use startForeground to update
-                startForeground(NOTIFICATION_ID, notification);
-            }
-        }
+        startForeground(NOTIFICATION_ID, notification); //  IMPORTANT FIX
     }
 
     private Notification createNotification(String status) {
-        // Create intent for when notification is clicked
-        Intent notificationIntent = new Intent(this, PlayerActivity.class);
-        notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // Create play/pause action
-        boolean isPlaying = player != null && player.isPlaying();
-        Intent playPauseIntent = new Intent(this, StreamingService.class);
-        playPauseIntent.setAction(isPlaying ? "PAUSE" : "PLAY");
-        PendingIntent playPausePendingIntent = PendingIntent.getService(this, 1, playPauseIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Intent intent = new Intent(this, PlayerActivity.class);
+        PendingIntent contentIntent = PendingIntent.getActivity(
+                this, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
 
-        // Create stop action
+        // PLAY intent
+        Intent playIntent = new Intent(this, StreamingService.class);
+        playIntent.setAction(ACTION_PLAY);
+        PendingIntent playPendingIntent = PendingIntent.getService(
+                this, 1, playIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        // PAUSE intent
+        Intent pauseIntent = new Intent(this, StreamingService.class);
+        pauseIntent.setAction(ACTION_PAUSE);
+        PendingIntent pausePendingIntent = PendingIntent.getService(
+                this, 2, pauseIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        // STOP intent
         Intent stopIntent = new Intent(this, StreamingService.class);
-        stopIntent.setAction("STOP");
-        PendingIntent stopPendingIntent = PendingIntent.getService(this, 2, stopIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        stopIntent.setAction(ACTION_STOP);
+        PendingIntent stopPendingIntent = PendingIntent.getService(
+                this, 3, stopIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
 
-        // Build notification
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("NECHATV Stream")
                 .setContentText(status)
                 .setSmallIcon(android.R.drawable.ic_media_play)
-                .setContentIntent(pendingIntent)
+                .setContentIntent(contentIntent)
                 .setOngoing(true)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+                .setStyle(new androidx.media.app.NotificationCompat.MediaStyle()
+                        .setShowActionsInCompactView(0, 1) .setMediaSession(null));
+                ;
 
-        // Add media controls
-        builder.addAction(
-                isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play,
-                isPlaying ? "Pause" : "Play",
-                playPausePendingIntent
-        );
-        builder.addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "Stop",
-                stopPendingIntent
-        );
 
-        // Add media style for better appearance
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            builder.setStyle(new androidx.media.app.NotificationCompat.MediaStyle()
-                    .setShowActionsInCompactView(0, 1));
+        //  DYNAMIC BUTTON (KEY FIX)
+        if (isPlaying()) {
+            builder.addAction(android.R.drawable.ic_media_pause, "Pause", pausePendingIntent);
+            builder.setSmallIcon(android.R.drawable.ic_media_play);
+        } else {
+            builder.addAction(android.R.drawable.ic_media_play, "Play", playPendingIntent);
         }
+
+        // Always add stop
+        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent);
 
         return builder.build();
     }
 
-// Add these imports at the top
-
-
-    // Replace the onPlayerError method with this:
+    // ExoPlayer listener
     @Override
     public void onPlayerError(PlaybackException error) {
-        error.printStackTrace();
-
-        String errorMessage = "Connection failed";
+        String errorMessage = "Unknown error";
         String errorType = "UNKNOWN";
 
-        // Detect different error types
-        if (error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED) {
-            errorMessage = "Network error - Please check your internet connection";
-            errorType = "NETWORK_ERROR";
-        } else if (error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT) {
-            errorMessage = "Connection timeout - Server is slow or offline";
-            errorType = "TIMEOUT";
-        } else if (error.errorCode == PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE) {
-            errorMessage = "This channel is geo-blocked and not available in your region";
-            errorType = "GEO_BLOCKED";
-        } else if (error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
-            errorMessage = "Channel unavailable (HTTP error)";
-            errorType = "HTTP_ERROR";
-
-            // Try to detect if it's geo-blocked by checking the URL
-            if (currentUrl != null) {
-                checkIfGeoBlocked(currentUrl);
-            }
+        switch (error.errorCode) {
+            case PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED:
+                errorMessage = "Network error";
+                errorType = "NETWORK_ERROR";
+                break;
+            case PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT:
+                errorMessage = "Connection timeout";
+                errorType = "TIMEOUT";
+                break;
+            case PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE:
+                errorMessage = "Geo-blocked channel";
+                errorType = "GEO_BLOCKED";
+                break;
         }
 
         updateNotification("Error: " + errorMessage);
 
-        // Send error to activity
         Intent intent = new Intent("STREAMING_ERROR");
         intent.putExtra("error", errorMessage);
         intent.putExtra("errorType", errorType);
-        sendBroadcast(intent);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
 
-        // Auto retry for network errors only
-        if (errorType.equals("NETWORK_ERROR") && retryCount < MAX_RETRIES) {
+        // Retry logic
+        if (retryCount < MAX_RETRIES) {
             retryCount++;
-            updateNotification("Retrying... (" + retryCount + "/" + MAX_RETRIES + ")");
-            new android.os.Handler().postDelayed(() -> {
-                if (player != null && currentUrl != null) {
-                    playStream(currentUrl);
-                }
-            }, 2000);
+            mainHandler.postDelayed(() -> playStreamAsync(currentUrl), 2000);
         } else {
             retryCount = 0;
         }
     }
 
-    // Add this method to check if URL is geo-blocked
-    private void checkIfGeoBlocked(String url) {
-        new Thread(() -> {
-            try {
-                HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-                connection.setRequestMethod("HEAD");
-                connection.setConnectTimeout(5000);
-                connection.setReadTimeout(5000);
-                int responseCode = connection.getResponseCode();
-                connection.disconnect();
-
-                if (responseCode == 403) {
-                    Intent intent = new Intent("STREAMING_ERROR");
-                    intent.putExtra("error", "This channel is geo-blocked");
-                    intent.putExtra("errorType", "GEO_BLOCKED");
-                    sendBroadcast(intent);
-                }
-            } catch (Exception e) {
-                // Ignore
-            }
-        }).start();
-    }
-
     @Override
-    public void onPlaybackStateChanged(int playbackState) {
+    public void onPlaybackStateChanged(int state) {
         String status;
-        switch (playbackState) {
-            case Player.STATE_BUFFERING:
-                status = "Buffering...";
-                break;
-            case Player.STATE_READY:
-                status = "Playing";
-                break;
-            case Player.STATE_ENDED:
-                status = "Stream ended";
-                break;
-            case Player.STATE_IDLE:
-                status = "Idle";
-                break;
-            default:
-                status = "Loading...";
+        switch (state) {
+            case Player.STATE_BUFFERING: status = "Buffering..."; break;
+            case Player.STATE_READY: status = "Playing"; break;
+            case Player.STATE_ENDED: status = "Stream ended"; break;
+            default: status = "Loading..."; break;
         }
         updateNotification(status);
 
-        // Broadcast state changes to activity
         Intent intent = new Intent("PLAYBACK_STATE");
-        intent.putExtra("state", playbackState);
+        intent.putExtra("state", state);
         intent.putExtra("status", status);
-        sendBroadcast(intent);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
     }
 
-    public ExoPlayer getPlayer() {
-        return player;
-    }
-
-    public boolean isPlaying() {
-        return player != null && player.isPlaying();
-    }
+    public ExoPlayer getPlayer() { return player; }
+    public boolean isPlaying() { return player != null && player.isPlaying(); }
 
     public void pausePlayback() {
-        if (player != null && player.isPlaying()) {
-            player.pause();
-            updateNotification("Paused");
-        }
-    }
+        if (player != null) player.pause();
+        updateNotification("Paused");
 
+    }
     public void resumePlayback() {
-        if (player != null && !player.isPlaying()) {
+        if (player != null)
             player.play();
-            updateNotification("Playing");
-        }
+        updateNotification("Playing");
     }
-
-    public void stopPlayback() {
-        if (player != null) {
-            player.stop();
-        }
-        stopForeground(true);
-        stopSelf();
-    }
+    public void stopPlayback() { if (player != null) player.stop(); stopForeground(true); stopSelf(); }
 
     @Override
     public void onDestroy() {
-        if (player != null) {
-            player.release();
-            player = null;
-        }
+        if (player != null) { player.release(); player = null; }
         super.onDestroy();
     }
 
     @Override
-    public IBinder onBind(Intent intent) {
-        return binder;
-    }
+    public IBinder onBind(Intent intent) { return binder; }
 }
